@@ -109,27 +109,63 @@ export interface ValidationCheckpoint {
     missingInfo: string[];
 }
 
-// OLD TYPES (potentially for other features)
-export interface BoundingBox {
-    x_min: number;
-    y_min: number;
-    x_max: number;
-    y_max: number;
+// STAGE 2: COMPREHENSIVE REPORT TYPES
+
+export interface ProjectMetadata {
+    project_name?: string;
+    part_number?: string;
+    revision?: string;
+    designer?: string;
+    date_extracted?: string;
+    source_documents?: string[];
 }
 
-export interface DrawingComponent {
-    componentId: string;
-    name?: string;
-    quantity?: number;
-    boundingBox?: BoundingBox;
-    material?: string;
-    materialId?: string; 
+export interface CoordinateSystem {
+    origin?: string;
+    axes?: { X?: string; Y?: string; Z?: string; };
+    units?: string;
 }
 
-export interface DrawingView {
-    viewId?: number;
-    viewType?: string;
-    description?: string;
-    scale?: string;
-    boundingBox?: BoundingBox;
+export interface AssemblyStep {
+    step?: number;
+    action?: string;
+    components_involved?: string[];
+    tools_required?: string[];
+    verification?: string;
+    safety_notes?: string;
+}
+
+export interface DrawingGenerationParameters {
+    "2d_views_required"?: string[];
+    "3d_model_type"?: string;
+    export_formats?: string[];
+    annotation_density?: string;
+}
+
+export interface BillOfMaterialsItem {
+    itemNumber: number;
+    partNumber: string;
+    description: string;
+    quantity: number;
+    material: string;
+    notes?: string;
+}
+
+export interface ComprehensiveReport {
+    project_metadata: ProjectMetadata;
+    coordinate_system: CoordinateSystem;
+    components: Component[];
+    assembly_sequence: AssemblyStep[];
+    drawing_generation_parameters: DrawingGenerationParameters;
+    billOfMaterials: BillOfMaterialsItem[];
+    standardsComplianceNotes: string[];
+}
+
+// STAGE 3: MANUFACTURING ARTIFACTS
+
+export interface ManufacturingArtifacts {
+    svgDrawing: string;
+    interactiveModelHtml: string;
+    cadRecreationGuideMd: string;
+    readinessChecklistMd: string;
 }

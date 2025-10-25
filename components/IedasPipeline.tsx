@@ -1,17 +1,23 @@
 import React, { useState } from 'react';
-import { UploadedFile, Stage1ExtractionResult, ValidationCheckpoint } from '../types';
+import { UploadedFile, Stage1ExtractionResult, ValidationCheckpoint, ComprehensiveReport, ManufacturingArtifacts } from '../types';
 import * as geminiService from '../services/geminiService';
+import { generateModelHtml } from '../services/threeJsGenerator';
 import { FileUpload } from './common/FileUpload';
 import { Loader } from './common/Loader';
 import { ValidationCheckpointViewer } from './common/ValidationCheckpointViewer';
+import { JsonViewer } from './common/JsonViewer';
+import { ManufacturingOutputViewer } from './common/ManufacturingOutputViewer';
 
-type PipelineStatus = 'idle' | 'analyzing' | 'validation_checkpoint' | 'cad_generation' | 'error';
+type PipelineStatus = 'idle' | 'analyzing' | 'validation_checkpoint' | 'structuring_data' | 'report_ready' | 'generating_drawings' | 'drawings_ready' | 'error';
 
 export const IedasPipeline: React.FC = () => {
     const [drawingFile, setDrawingFile] = useState<UploadedFile | null>(null);
     const [status, setStatus] = useState<PipelineStatus>('idle');
     const [stage1Data, setStage1Data] = useState<Stage1ExtractionResult | null>(null);
     const [checkpointData, setCheckpointData] = useState<ValidationCheckpoint | null>(null);
+    const [comprehensiveReport, setComprehensiveReport] = useState<ComprehensiveReport | null>(null);
+    const [manufacturingArtifacts, setManufacturingArtifacts] = useState<ManufacturingArtifacts | null>(null);
+    const [generationProgressText, setGenerationProgressText] = useState('');
     const [error, setError] = useState<string | null>(null);
 
     const handleFileSelect = (files: UploadedFile[]) => {
@@ -40,16 +46,63 @@ export const IedasPipeline: React.FC = () => {
         }
     };
 
-    const handleProceed = (decision: 'assumptions' | 'current_data') => {
-        console.log(`Proceeding with decision: ${decision}`);
-        // Placeholder for next stage
-        setStatus('cad_generation'); 
+    const handleProceedToReport = async (decision: 'assumptions' | 'current_data') => {
+        if (!stage1Data || !drawingFile) {
+            setError('Missing data to proceed.');
+            setStatus('error');
+            return;
+        }
+        setStatus('structuring_data');
+        try {
+            const report = await geminiService.generateComprehensiveReport(stage1Data, drawingFile.name, decision);
+            setComprehensiveReport(report);
+            setStatus('report_ready');
+        } catch (err: any) {
+             setError(err.message || `Failed to generate the comprehensive report.`);
+             setStatus('error');
+        }
     };
+
+    const handleGenerateDrawings = async () => {
+        if (!comprehensiveReport) {
+            setError('Comprehensive report not available.');
+            setStatus('error');
+            return;
+        }
+        setStatus('generating_drawings');
+        try {
+            const llmArtifacts = await geminiService.generateManufacturingDrawings(
+                comprehensiveReport, 
+                (message) => setGenerationProgressText(message)
+            );
+
+            setGenerationProgressText('Generating interactive 3D model...');
+            
+            // Generate the HTML for the 3D model on the client side for reliability
+            const modelHtml = generateModelHtml(comprehensiveReport);
+
+            // Combine AI-generated artifacts with client-generated model
+            const finalArtifacts: ManufacturingArtifacts = {
+                ...llmArtifacts,
+                interactiveModelHtml: modelHtml,
+            };
+
+            setManufacturingArtifacts(finalArtifacts);
+            setStatus('drawings_ready');
+        } catch(err: any) {
+            setError(err.message || `Failed to generate manufacturing drawings.`);
+            setStatus('error');
+        }
+    };
+
 
     const handleReset = () => {
         setDrawingFile(null);
         setStage1Data(null);
         setCheckpointData(null);
+        setComprehensiveReport(null);
+        setManufacturingArtifacts(null);
+        setGenerationProgressText('');
         setError(null);
         setStatus('idle');
     };
@@ -63,20 +116,40 @@ export const IedasPipeline: React.FC = () => {
                 return checkpointData ? (
                     <ValidationCheckpointViewer 
                         checkpoint={checkpointData}
-                        onProceed={handleProceed}
+                        onProceed={handleProceedToReport}
                     />
                 ) : <Loader text="Preparing validation checkpoint..." />;
 
-            case 'cad_generation':
-                 return (
-                    <div className="text-center">
-                        <h3 className="text-xl font-bold text-green-400 mb-4">Stage 1 Approved!</h3>
-                        <p className="text-gray-300 mb-6">Next step: CAD Generation based on the validated data.</p>
-                        <button onClick={handleReset} className="mt-4 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">
-                            Start New Project
+            case 'structuring_data':
+                return <Loader text="Generating Comprehensive Report..." />;
+
+            case 'report_ready':
+                return (
+                    <div className="w-full max-w-4xl text-center">
+                        <h3 className="text-xl font-bold text-green-400 mb-4">Comprehensive Report Generated</h3>
+                        <p className="text-gray-300 mb-6">The final structured JSON is ready for Stage 3.</p>
+                        {comprehensiveReport && <JsonViewer data={JSON.stringify(comprehensiveReport)} />}
+                        <button onClick={handleGenerateDrawings} className="mt-4 bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg text-lg">
+                            Generate Manufacturing Drawings
                         </button>
                     </div>
                 );
+            
+            case 'generating_drawings':
+                return <Loader text={generationProgressText || 'Generating Manufacturing Drawings...'} />;
+
+            case 'drawings_ready':
+                return manufacturingArtifacts ? (
+                    <div className="w-full">
+                        <ManufacturingOutputViewer artifacts={manufacturingArtifacts} />
+                        <div className="text-center mt-8">
+                            <button onClick={handleReset} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">
+                                Start New Project
+                            </button>
+                        </div>
+                    </div>
+                ) : <Loader text="Loading artifacts..." />;
+
 
             case 'error':
                 return (
@@ -125,9 +198,25 @@ export const IedasPipeline: React.FC = () => {
         }
     };
 
+    const getStageTitle = () => {
+        if(status === 'idle' || status === 'analyzing' || status === 'validation_checkpoint' || status === 'structuring_data') {
+            return "Stage 1 & 2: Visual Analysis & Data Structuring";
+        }
+        if(status === 'report_ready' || status === 'generating_drawings') {
+            return "Stage 3: Manufacturing Drawing Generation";
+        }
+         if(status === 'drawings_ready') {
+            return "Stage 3: Final Output Package";
+        }
+        if (status === 'error') {
+            return "An Error Occurred";
+        }
+        return "IEDAS Pipeline";
+    }
+
     return (
         <div className="bg-gray-800 p-6 sm:p-8 rounded-2xl shadow-2xl border border-gray-700">
-            <h2 className="text-2xl font-bold text-center mb-6">IEDAS: Stage 1 - Visual Analysis</h2>
+            <h2 className="text-2xl font-bold text-center mb-6">{getStageTitle()}</h2>
             <div className="min-h-[400px] flex items-center justify-center">
                 {renderContent()}
             </div>
