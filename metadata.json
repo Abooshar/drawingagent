@@ -1,0 +1,5 @@
+{
+  "name": "Intelligent Engineering Drawing Automation System (IEDAS)",
+  "description": "An AI-powered application to generate manufacturing-ready 2D and 3D engineering drawings from text, images, and specifications. It also includes features for AI-driven image generation, editing, and analysis.",
+  "requestFramePermissions": []
+}
